@@ -20,10 +20,12 @@ class Anime3rb : MainAPI() {
         val res = app.get(url)
         val doc = res.document
         
+        // البحث عن الروابط التي تحتوي على titles كما في الموقع
         return doc.select("a[href*='/titles/']").mapNotNull {
             val href = it.attr("href")
             val container = it.parent()
             
+            // محاولة التقاط الصورة من العنصر نفسه أو الأب
             val posterUrl = it.select("img").attr("src").ifEmpty { 
                 container?.select("img")?.attr("src") ?: "" 
             }
@@ -45,7 +47,7 @@ class Anime3rb : MainAPI() {
         val poster = doc.select("img[class*='object-cover']").attr("src")
         val description = doc.select("p.font-light, div.story").text()
 
-        // استخراج الحلقات بناءً على الكود الذي أرسلته سابقاً
+        // استخراج الحلقات بدقة بناءً على كود HTML الذي أرسلته
         val episodes = doc.select("a[href*='/episode/']").mapNotNull {
             val href = it.attr("href")
             val videoData = it.select("div.video-data")
@@ -61,7 +63,7 @@ class Anime3rb : MainAPI() {
         return newAnimeLoadResponse(title, url, TvType.Anime) {
             this.posterUrl = fixUrl(poster)
             this.plot = description
-            // استخدام DubStatus.Sub لحل مشكلة النوع
+            // إضافة DubStatus.Sub إجبارية في التحديث الجديد
             addEpisodes(DubStatus.Sub, episodes)
         }
     }
@@ -79,11 +81,11 @@ class Anime3rb : MainAPI() {
             val downloadUrl = link.attr("href")
             val text = link.text()
             
-            // استخدام الطريقة القديمة الموثوقة لتجنب مشاكل النسخ الجديدة
+            // استخدام newExtractorLink لتجنب الخطأ الأحمر
             callback.invoke(
-                ExtractorLink(
-                    source = "Anime3rb",
-                    name = "Anime3rb Direct",
+                newExtractorLink(
+                    source = "Anime3rb Direct",
+                    name = text,
                     url = downloadUrl,
                     referer = mainUrl,
                     quality = getQualityFromName(text)
@@ -96,10 +98,11 @@ class Anime3rb : MainAPI() {
             var src = iframe.attr("src")
             if (src.startsWith("//")) src = "https:$src"
             
-            // الترتيب الصحيح للمتغيرات الذي يطلبه النظام الجديد
+            // الترتيب الصحيح: (الرابط، الترجمة، الرد) لتجنب Type Mismatch
             loadExtractor(src, subtitleCallback, callback)
         }
 
         return true
     }
+}
 }
