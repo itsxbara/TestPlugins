@@ -3,7 +3,7 @@ package com.example
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
-  
+
 class Anime3rb : MainAPI() {
     override var mainUrl = "https://anime3rb.com"
     override var name = "Anime3rb"
@@ -39,22 +39,23 @@ class Anime3rb : MainAPI() {
         val poster = doc.select("img.poster, div.poster img").attr("src")
         val description = doc.select("div.story, p.synopsis").text()
 
+        // الإصلاح الأول: استخدام newEpisode بدلاً من Episode القديمة
         val episodes = doc.select("div.episodes-list a, div.episodes-card a").map {
             val epName = it.text()
             val epUrl = it.attr("href")
             val epNum = Regex("\\d+").find(epName)?.value?.toIntOrNull()
 
-            Episode(
-                data = fixUrl(epUrl),
-                name = epName,
-                episode = epNum
-            )
+            newEpisode(fixUrl(epUrl)) {
+                this.name = epName
+                this.episode = epNum
+            }
         }
 
         return newAnimeLoadResponse(title, url, TvType.Anime) {
             this.posterUrl = fixUrl(poster)
             this.plot = description
-            addEpisodes(episodes)
+            // الإصلاح الثاني: إضافة نوع الدبلجة (Sub) لتتوافق مع التحديث الجديد
+            addEpisodes(DubStatus.Sub, episodes)
         }
     }
 
@@ -66,6 +67,7 @@ class Anime3rb : MainAPI() {
     ): Boolean {
         val doc = app.get(data).document
 
+        // محاولة سحب روابط التحميل المباشرة
         doc.select("a:contains(تحميل مباشر)").forEach { link ->
             val downloadUrl = link.attr("href")
             val qualityText = link.text() 
@@ -82,9 +84,10 @@ class Anime3rb : MainAPI() {
             )
         }
 
+        // الإصلاح الثالث: ترتيب المتغيرات الصحيح (subtitleCallback قبل callback)
         doc.select("iframe").forEach { iframe ->
             val src = iframe.attr("src")
-            loadExtractor(src, callback, subtitleCallback)
+            loadExtractor(src, subtitleCallback, callback)
         }
 
         return true
