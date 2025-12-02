@@ -20,37 +20,92 @@ class Anime3rb : MainAPI() {
         val res = app.get(url)
         val doc = res.document
         
-        // محاولة البحث بأكثر من طريقة لضمان التقاط النتائج
-        return doc.select("div.col-6.col-md-2, div.anime-card-container, div.mb-3").mapNotNull {
-            val title = it.select("h3, a.title, div.title, h5").text().trim()
-            val href = it.select("a").attr("href")
-            val posterUrl = it.select("img").attr("src")
+        // بحث ذكي: نبحث عن أي رابط يؤدي لصفحة أنمي (يحتوي على /titles/)
+        // ونتأكد أنه يحتوي على صورة وعنوان لكي لا نسحب روابط فارغة
+        return doc.select("a[href*='/titles/']").mapNotNull {
+            val href = it.attr("href")
+            val container = it.parent() // الصعود للأب للتأكد من المحتوى
             
-            if(href.isEmpty() || title.isEmpty()) return@mapNotNull null
+            // محاولة التقاط الصورة والعنوان من الرابط نفسه أو من العنصر المحيط به
+            val posterUrl = it.select("img").attr("src").ifEmpty { 
+                container?.select("img")?.attr("src") ?: "" 
+            }
+            val title = it.text().ifEmpty { 
+                container?.select("h3, .title")?.text() ?: "انمي بدون عنوان" 
+            }
+            
+            // تجاهل الروابط التي لا تحتوي على صورة (لتجنب الروابط النصية فقط)
+            if(posterUrl.isEmpty()) return@mapNotNull null
 
             newAnimeSearchResponse(title, fixUrl(href), TvType.Anime) {
                 this.posterUrl = fixUrl(posterUrl)
             }
-        }
+        }.distinctBy { it.url } // منع التكرار
     }
 
     override suspend fun load(url: String): LoadResponse {
         val doc = app.get(url).document
-        val title = doc.select("h1.title, h1").text().trim()
-        val poster = doc.select("img.poster, div.poster img, img.img-fluid").attr("src")
-        val description = doc.select("div.story, p.synopsis, div.card-body p").text()
+        val title = doc.select("h1").text().trim()
+        val poster = doc.select("img[class*='object-cover']").attr("src")
+        val description = doc.select("p.font-light, div.story").text()
 
-        // استخدام newEpisode المتوافق مع التحديث الأخير
-        val episodes = doc.select("div.episodes-list a, div.episodes-card a, div.col-6 a").map {
-            val epName = it.text().trim()
-            val epUrl = it.attr("href")
-            // استخراج الرقم بذكاء من النص
+        // استخراج الحلقات بناءً على الكود الذي أرسلته (فئة btn ورابط episode)
+        val episodes = doc.select("a[href*='/episode/']").mapNotNull {
+            val href = it.attr("href")
+            // البحث داخل div.video-data كما ظهر في الكود الخاص بك
+            val videoData = it.select("div.video-data")
+            val epName = videoData.select("span").text() // "الحلقة 1"
             val epNum = Regex("(\\d+)").find(epName)?.value?.toIntOrNull()
+            
+            // التقاط صورة الحلقة المصغرة إن وجدت
+            val epThumb = it.select("img").attr("src")
 
-            newEpisode(fixUrl(epUrl)) {
+            newEpisode(fixUrl(href)) {
                 this.name = epName
                 this.episode = epNum
+                this.posterUrl = fixUrl(epThumb)
             }
         }
 
-        return newAnimeLoadResponse(title, url
+        return newAnimeLoadResponse(title, url, TvType.Anime) {
+            this.posterUrl = fixUrl(poster)
+            this.plot = description
+            addEpisodes(DubStatus.Sub, episodes)
+        }
+    }
+
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        val doc = app.get(data).document
+
+        // 1. استخراج رابط التحميل المباشر (بناءً على الكود الذي أرسلته)
+        // نبحث عن الرابط الذي يحتوي على كلمة "download"
+        doc.select("a[href*='/download/']").forEach { link ->
+            val downloadUrl = link.attr("href")
+            val text = link.text() // مثال: تحميل مباشر [334.66 ميغابايت]
+            
+            callback.invoke(
+                newExtractorLink(
+                    source = "تحميل مباشر",
+                    name = text, // سيظهر النص مع الحجم
+                    url = downloadUrl,
+                    referer = mainUrl,
+                    quality = getQualityFromName(text)
+                )
+            )
+        }
+
+        // 2. البحث عن السيرفرات الأخرى (Iframe) للاحتياط
+        doc.select("iframe").forEach { iframe ->
+            var src = iframe.attr("src")
+            if (src.startsWith("//")) src = "https:$src"
+            loadExtractor(src, subtitleCallback, callback)
+        }
+
+        return true
+    }
+}
