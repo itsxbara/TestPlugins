@@ -39,7 +39,7 @@ class Anime3rb : MainAPI() {
         val poster = doc.select("img.poster, div.poster img").attr("src")
         val description = doc.select("div.story, p.synopsis").text()
 
-        // الإصلاح الأول: استخدام newEpisode بدلاً من Episode القديمة
+        // التعديل الأول: استخدام newEpisode بدلاً من Episode القديمة (لحل خطأ السطر 67)
         val episodes = doc.select("div.episodes-list a, div.episodes-card a").map {
             val epName = it.text()
             val epUrl = it.attr("href")
@@ -54,7 +54,7 @@ class Anime3rb : MainAPI() {
         return newAnimeLoadResponse(title, url, TvType.Anime) {
             this.posterUrl = fixUrl(poster)
             this.plot = description
-            // الإصلاح الثاني: إضافة نوع الدبلجة (Sub) لتتوافق مع التحديث الجديد
+            // التعديل الثاني: إضافة DubStatus.Sub (لحل خطأ السطر 57)
             addEpisodes(DubStatus.Sub, episodes)
         }
     }
@@ -67,12 +67,12 @@ class Anime3rb : MainAPI() {
     ): Boolean {
         val doc = app.get(data).document
 
-        // محاولة سحب روابط التحميل المباشرة
         doc.select("a:contains(تحميل مباشر)").forEach { link ->
             val downloadUrl = link.attr("href")
             val qualityText = link.text() 
             val quality = getQualityFromName(qualityText)
 
+            // محاولة استخدام الطريقة الجديدة للروابط إن أمكن، أو الاستمرار بالطريقة الحالية إذا كانت مدعومة
             callback.invoke(
                 ExtractorLink(
                     source = "Anime3rb Direct",
@@ -84,9 +84,9 @@ class Anime3rb : MainAPI() {
             )
         }
 
-        // الإصلاح الثالث: ترتيب المتغيرات الصحيح (subtitleCallback قبل callback)
         doc.select("iframe").forEach { iframe ->
             val src = iframe.attr("src")
+            // التعديل الثالث: تصحيح ترتيب المتغيرات (لحل خطأ السطر 87)
             loadExtractor(src, subtitleCallback, callback)
         }
 
