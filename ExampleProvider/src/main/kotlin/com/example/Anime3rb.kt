@@ -20,17 +20,19 @@ class Anime3rb : MainAPI() {
         val res = app.get(url)
         val doc = res.document
         
-        // البحث عن الروابط التي تحتوي على titles كما في الموقع
+        // استخدام محدد عام وآمن للبحث عن البطاقات لتجنب الأخطاء
         return doc.select("a[href*='/titles/']").mapNotNull {
             val href = it.attr("href")
             val container = it.parent()
             
-            // محاولة التقاط الصورة من العنصر نفسه أو الأب
+            // محاولة التقاط الصورة من داخل الرابط أو من العنصر الأب
             val posterUrl = it.select("img").attr("src").ifEmpty { 
                 container?.select("img")?.attr("src") ?: "" 
             }
-            val title = it.text().ifEmpty { 
-                container?.select("h3, .title")?.text() ?: "انمي بدون عنوان" 
+            
+            // العنوان غالباً يكون نص الرابط أو في عنوان قريب
+            val title = it.text().trim().ifEmpty { 
+                container?.select("h3, .title")?.text()?.trim() ?: "أنمي" 
             }
             
             if(posterUrl.isEmpty()) return@mapNotNull null
@@ -47,11 +49,17 @@ class Anime3rb : MainAPI() {
         val poster = doc.select("img[class*='object-cover']").attr("src")
         val description = doc.select("p.font-light, div.story").text()
 
-        // استخراج الحلقات بدقة بناءً على كود HTML الذي أرسلته
+        // --- هنا استخدمنا الـ HTML الذي أرسلته لي للحلقات ---
+        // نبحث عن الروابط التي تحتوي على 'episode'
         val episodes = doc.select("a[href*='/episode/']").mapNotNull {
             val href = it.attr("href")
+            // البحث داخل div.video-data كما ظهر في الكود الخاص بك
             val videoData = it.select("div.video-data")
-            val epName = videoData.select("span").text()
+            
+            // استخراج الاسم "الحلقة 1"
+            val epName = videoData.select("span").text().trim()
+            
+            // استخراج الرقم من الاسم
             val epNum = Regex("(\\d+)").find(epName)?.value?.toIntOrNull()
             
             newEpisode(fixUrl(href)) {
@@ -63,7 +71,8 @@ class Anime3rb : MainAPI() {
         return newAnimeLoadResponse(title, url, TvType.Anime) {
             this.posterUrl = fixUrl(poster)
             this.plot = description
-            // إضافة DubStatus.Sub إجبارية في التحديث الجديد
+            
+            // هذا السطر يحل مشكلة الخطأ الأحمر (يجب تحديد النوع Sub)
             addEpisodes(DubStatus.Sub, episodes)
         }
     }
@@ -76,12 +85,13 @@ class Anime3rb : MainAPI() {
     ): Boolean {
         val doc = app.get(data).document
 
-        // البحث عن روابط التحميل المباشرة
+        // --- هنا استخدمنا الـ HTML الذي أرسلته لي للتحميل ---
+        // البحث عن زر يحتوي على كلمة download
         doc.select("a[href*='/download/']").forEach { link ->
             val downloadUrl = link.attr("href")
-            val text = link.text()
+            val text = link.text() // النص مثل: "تحميل مباشر [334.66 ميغابايت]"
             
-            // استخدام newExtractorLink لتجنب الخطأ الأحمر
+            // استخدام newExtractorLink لأن ExtractorLink القديمة تم إلغاؤها
             callback.invoke(
                 newExtractorLink(
                     source = "Anime3rb Direct",
@@ -93,16 +103,15 @@ class Anime3rb : MainAPI() {
             )
         }
 
-        // استخراج السيرفرات (Iframe)
+        // البحث عن السيرفرات (Iframe)
         doc.select("iframe").forEach { iframe ->
             var src = iframe.attr("src")
             if (src.startsWith("//")) src = "https:$src"
             
-            // الترتيب الصحيح: (الرابط، الترجمة، الرد) لتجنب Type Mismatch
+            // ترتيب المتغيرات المصحح: الرابط، ثم الترجمة، ثم الرد
             loadExtractor(src, subtitleCallback, callback)
         }
 
         return true
     }
-}
 }
